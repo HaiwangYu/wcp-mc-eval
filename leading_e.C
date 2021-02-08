@@ -4,6 +4,7 @@
 #include "TH2F.h"
 #include "TCanvas.h"
 #include "TLorentzVector.h"
+#include "TEfficiency.h"
 
 #include <vector>
 #include <iostream>
@@ -47,6 +48,8 @@ void leading_e(
         const char* input = "nue_overlay_run2.root"
         //const char* input = "nue_overlay_run1_test_3000.root"
         ) {
+    gInterpreter->GenerateDictionary("vector<vector<int> >", "vector");
+
     auto *tf = TFile::Open(input, "read");
     auto *dir = (TDirectoryFile*) tf->Get("wcpselection");
     auto *T_PFDump = (TTree*) dir->Get("T_PFDump");
@@ -60,7 +63,7 @@ void leading_e(
     float truth_endXYZT[MAX_TRACKS][4];
     float truth_startMomentum[MAX_TRACKS][4];
     float truth_endMomentum[MAX_TRACKS][4];
-    std::vector<std::vector<int> > *truth_daughters;
+    std::vector<std::vector<int> > * truth_daughters = 0;
 
     int reco_Ntrack;
     int reco_id[MAX_TRACKS];
@@ -71,19 +74,26 @@ void leading_e(
     float reco_endXYZT[MAX_TRACKS][4];
     float reco_startMomentum[MAX_TRACKS][4];
     float reco_endMomentum[MAX_TRACKS][4];
-    std::vector<std::vector<int> > *reco_daughters;
+    std::vector<std::vector<int> > *reco_daughters = 0;
 
     T_PFDump->SetBranchAddress("truth_Ntrack", &truth_Ntrack);
     T_PFDump->SetBranchAddress("truth_pdg", &truth_pdg);
     T_PFDump->SetBranchAddress("truth_mother", &truth_mother);
     T_PFDump->SetBranchAddress("truth_startXYZT", &truth_startXYZT);
     T_PFDump->SetBranchAddress("truth_startMomentum", &truth_startMomentum);
+    cout << truth_daughters << endl;
+    T_PFDump->SetBranchAddress("truth_daughters", &truth_daughters);
+    cout << truth_daughters << endl;
 
     T_PFDump->SetBranchAddress("reco_Ntrack", &reco_Ntrack);
     T_PFDump->SetBranchAddress("reco_pdg", &reco_pdg);
     T_PFDump->SetBranchAddress("reco_mother", &reco_mother);
     T_PFDump->SetBranchAddress("reco_startXYZT", &reco_startXYZT);
     T_PFDump->SetBranchAddress("reco_startMomentum", &reco_startMomentum);
+    T_PFDump->SetBranchAddress("reco_daughters", &reco_daughters);
+
+    TH1F* h_ndaughter_truth = new TH1F("h_ndaughter_truth","h_ndaughter_truth",100,-0.5,99.5);
+    TH1F* h_ndaughter_reco = new TH1F("h_ndaughter_reco","h_ndaughter_reco",100,-0.5,99.5);
 
     TH1F* h_reco_m_truth = new TH1F("h_reco_m_truth","h_reco_m_truth",200,-3,3);
     TH2F* h_reco_v_truth = new TH2F("h_reco_v_truth","h_reco_v_truth",200,0,4,200,0,4);
@@ -93,8 +103,8 @@ void leading_e(
 
     int counter_has_truth_e = 0;
     int counter_has_reco_e = 0;
-    for (int ientry=0; ientry<T_PFDump->GetEntries(); ++ientry) {
-        //for (int ientry=0; ientry<10000; ++ientry) {
+    //for (int ientry=0; ientry<T_PFDump->GetEntries(); ++ientry) {
+    for (int ientry=0; ientry<1000; ++ientry) {
         T_PFDump->GetEntry(ientry);
         if(ientry%1000==0) cout << "processing: " << ientry/10000.*100 << "%" << endl;
 
@@ -102,6 +112,7 @@ void leading_e(
         TLorentzVector mom_truth;
         float current_max_energy_truth = 0;
         for(int itruth=0; itruth<truth_Ntrack; ++itruth) {
+            h_ndaughter_truth->Fill(truth_daughters->at(itruth).size());
             if(truth_mother[itruth]!=0) continue;
             if(truth_pdg[itruth]!=11) continue;
             if(truth_startMomentum[itruth][3]<current_max_energy_truth) continue;
@@ -130,6 +141,7 @@ void leading_e(
         TLorentzVector mom_reco;
         float current_max_energy_reco = 0;
         for(int ireco=0; ireco<reco_Ntrack; ++ireco) {
+            h_ndaughter_reco->Fill(reco_daughters->at(ireco).size());
             if(reco_mother[ireco]!=0) continue;
             if(reco_pdg[ireco]!=11) continue;
             if(reco_startMomentum[ireco][3]<current_max_energy_reco) continue;
@@ -186,6 +198,10 @@ void leading_e(
     h_truth_e_ratio->SetStats(0);
     h_truth_e_ratio->Draw("");
 
+    auto pEff = new TEfficiency(*h_truth_e_match,*h_truth_e_all);
+    pEff->SetMarkerStyle(20);
+    pEff->SetTitle(";E^{truth} [GeV];Efficiency");
+    pEff->Draw("p,same");
 
     TCanvas *c2 = new TCanvas("c2","c2");
     c2->SetGrid();
@@ -203,4 +219,9 @@ void leading_e(
     h_reco_m_truth->SetTitle(";E^{reco}-E^{truth} [GeV]");
     //h_reco_m_truth->SetStats(0);
     h_reco_m_truth->Draw();
-    }
+
+    TCanvas *c4 = new TCanvas("c4","c4");
+    h_ndaughter_truth->Draw();
+    TCanvas *c5 = new TCanvas("c5","c5");
+    h_ndaughter_reco->Draw();
+}
