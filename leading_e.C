@@ -232,9 +232,7 @@ void leading_e(
                 TLorentzVector tlv;
                 tlv.SetPxPyPzE(truth_startMomentum[itruth][0], truth_startMomentum[itruth][1], truth_startMomentum[itruth][2], truth_startMomentum[itruth][3]);
                 proton_daugher_ke += truth_startMomentum[itruth][3]-tlv.M();
-                if(truth_startMomentum[itruth][3]-tlv.M() < 0) {
-                    cout << " itruth: " << itruth << " id: " << id << " pdg: " << truth_pdg[itruth] << " mother: " << truth_mother[itruth] << " ke: " <<truth_startMomentum[itruth][3]-tlv.M() << endl;
-                }
+                // cout << " itruth: " << itruth << " id: " << id << " pdg: " << truth_pdg[itruth] << " mother: " << truth_mother[itruth] << " ke: " <<truth_startMomentum[itruth][3]-tlv.M() << endl;
             }
             h_reco_v_truth->Fill(target_mom_start_truth.E(), proton_daugher_ke);
             if (!is_good_proton(target_pos_start_truth, target_pos_end_truth, proton_daugher_ke, 0.05)) continue;
