@@ -75,13 +75,16 @@ bool particle_match(const TLorentzVector &pa, const TLorentzVector &pb, const TL
 
 class PF {
    public:
-    PF(float inu_energy, int iNtrack, int *iid, int *ipdg, float *istartMomentum, int *imother, std::vector<std::vector<int> > *idaughters)
+    PF(float inu_energy, int iNtrack, int *iid, int *ipdg, float *istartMomentum, float *istartXYZT, float *iendXYZT,
+       int *imother, std::vector<std::vector<int> > *idaughters)
     {
         nu_energy = inu_energy;
         Ntrack = iNtrack;
         id = iid;
         pdg = ipdg;
         startMomentum = istartMomentum;
+        startXYZT = istartXYZT;
+        endXYZT = iendXYZT;
         mother = imother;
         daughters = idaughters;
     }
@@ -118,8 +121,19 @@ class PF {
             float e = startMomentum[i * 4 + 3];
             TLorentzVector tlv(px,py,pz,e);
             auto ke = tlv.E() - tlv.M();
+            string color = "black";
+            stringstream fv;
+            if (!is_in_fv(startXYZT[i * 4 + 0], startXYZT[i * 4 + 1], startXYZT[i * 4 + 2], 0)) {
+                fv << " s.o.f ";
+            }
+            if (!is_in_fv(endXYZT[i * 4 + 0], endXYZT[i * 4 + 1], endXYZT[i * 4 + 2], 0)) {
+                // fv << endXYZT[i * 4 + 0] << ", " << endXYZT[i * 4 + 1] << ", " << endXYZT[i * 4 + 2];
+                fv << " e.o.f ";
+            }
             if(ke<0.01) continue;
-            ss << id[i] << " [label=\"" << pdg[i] << "\\l" << ke << "\"]\n";
+            ss << id[i] << " [label=\"" << pdg[i] << "\\l" << ke << "\\l" << fv.str() << "\"";
+            // ss << "color=" << color;
+            ss << "]\n";
             ss << mother[i] << "->" << id[i] << endl;
         }
         ss << "}\n";
@@ -130,6 +144,8 @@ class PF {
     int *id;
     int *pdg;
     float *startMomentum;
+    float *startXYZT;
+    float *endXYZT;
     int *mother;
     std::vector<std::vector<int> > *daughters;
 };
@@ -280,9 +296,10 @@ void proton_eff(
     int counter_all = 0;
     int counter_pass = 0;
     for (int ientry = 0; ientry < T_PFDump->GetEntries(); ++ientry) {
-    // for (int ientry = 0; ientry < 10; ++ientry) {
+    // for (int ientry = 0; ientry < 100000; ++ientry) {
         T_PFDump->GetEntry(ientry);
         if (ientry % (T_PFDump->GetEntries()/10) == 0) cout << "processing: " << ientry*100 / T_PFDump->GetEntries() << "%" << endl;
+        // if (ientry != 30779) continue;
         if (numu_cc_flag < 0 || stm_clusterlength < 15) continue;  // generic nu selection
         if (numu_score<0.9) continue; // BDT numu
         // if (nue_score<7) continue; // BDT nue
@@ -338,28 +355,55 @@ void proton_eff(
             continue;
         }
 
-        h_truth_e_all->Fill(target_mom_start_truth.E()-target_mom_start_truth.M());
+        bool simple_proton = true;
+        if (!is_in_fv(truth_endXYZT[target_index_truth][0], truth_endXYZT[target_index_truth][1],
+                        truth_endXYZT[target_index_truth][2], 0)) {
+            simple_proton = false;
+        }
+        for (int itruth = 0; itruth < truth_Ntrack; ++itruth) {
+            if (truth_mother[itruth] != truth_id[target_index_truth]) continue;
+            TLorentzVector tlv;
+            tlv.SetXYZT(truth_startMomentum[itruth][0], truth_startMomentum[itruth][1],
+                                           truth_startMomentum[itruth][2], truth_startMomentum[itruth][3]);
+            auto ke = tlv.E() - tlv.M();
+            if (ke > 0.01) simple_proton = false;
+        }
+        if (!simple_proton) {
+            continue;
+        }
 
-        if (current_max_energy_truth > 1.5 && current_max_energy_reco < 0) {
+        ++counter_all;
+        const float target_KE = target_mom_start_truth.E()-target_mom_start_truth.M();
+        h_truth_e_all->Fill(target_KE);
+
+        if (false && target_KE > 0.5) {
             char buff[100];
-            snprintf(buff, sizeof(buff), "%1.2f", current_max_energy_truth);
+            snprintf(buff, sizeof(buff), "%1.2f", target_KE);
             stringstream ss;
+            if (current_max_energy_reco < 0) {
+                ss << "fail_";
+            } else {
+                ss << "match_";
+            }
             ss << buff << "_" << ientry << "_" << run << "_" << subrun << "_" << event;
             ofstream ftruth(ss.str() + "_truth.dot");
-            PF pf_truth(truth_nu_momentum[3], truth_Ntrack, truth_id, truth_pdg, (float *) truth_startMomentum,
+            PF pf_truth(truth_nu_momentum[3], truth_Ntrack, truth_id, truth_pdg, (float *) truth_startMomentum, (float *) truth_startXYZT, (float *) truth_endXYZT,
                         truth_mother, truth_daughters);
             ftruth << pf_truth.dotify();
             ftruth.close();
             ofstream freco(ss.str() + "_reco.dot");
-            PF pf_reco(kine_reco_Enu / 1000., reco_Ntrack, reco_id, reco_pdg, (float *) reco_startMomentum, reco_mother,
+            PF pf_reco(kine_reco_Enu / 1000., reco_Ntrack, reco_id, reco_pdg, (float *) reco_startMomentum, (float *) reco_startXYZT,(float *) reco_endXYZT, reco_mother,
                        reco_daughters);
             freco << pf_reco.dotify();
             freco.close();
+        }
+
+        if (current_max_energy_reco < 0) {
             continue;
         }
         ++counter_pass;
-        h_truth_e_match->Fill(target_mom_start_truth.E()-target_mom_start_truth.M());
-        h_reco_v_truth->Fill(target_mom_start_truth.E()-target_mom_start_truth.M(),mom_reco.E()-mom_reco.M());
+        h_truth_e_match->Fill(target_KE);
+        h_reco_v_truth->Fill(target_KE,mom_reco.E()-mom_reco.M());
     }
     cout << "target: truth " << counter_all << "; reco " << counter_pass
          << "; ratio: " << 100. * counter_pass / counter_all << "%" << endl;
