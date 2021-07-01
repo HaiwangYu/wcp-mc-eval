@@ -295,8 +295,8 @@ void proton_eff(
 
     int counter_all = 0;
     int counter_pass = 0;
-    for (int ientry = 0; ientry < T_PFDump->GetEntries(); ++ientry) {
-    // for (int ientry = 0; ientry < 100000; ++ientry) {
+    // for (int ientry = 0; ientry < T_PFDump->GetEntries(); ++ientry) {
+    for (int ientry = 0; ientry < 10000; ++ientry) {
         T_PFDump->GetEntry(ientry);
         if (ientry % (T_PFDump->GetEntries()/10) == 0) cout << "processing: " << ientry*100 / T_PFDump->GetEntries() << "%" << endl;
         // if (ientry != 30779) continue;
@@ -304,7 +304,7 @@ void proton_eff(
         if (numu_score<0.9) continue; // BDT numu
         // if (nue_score<7) continue; // BDT nue
         if (!truth_isCC) continue;
-        if (match_isFC!=false) continue; // FV cut
+        if (match_isFC!=true) continue; // FV cut
         // if (truth_isFC!=true) continue; // FV cut
         // if (!is_in_fv(truth_corr_nuvtxX, truth_corr_nuvtxY, truth_corr_nuvtxZ)) continue; // alternative FV
         // if (truth_nu_momentum[3]<0.3 || truth_nu_momentum[3]>1.5) continue;
@@ -376,7 +376,7 @@ void proton_eff(
         const float target_KE = target_mom_start_truth.E()-target_mom_start_truth.M();
         h_truth_e_all->Fill(target_KE);
 
-        if (false && target_KE > 0.5) {
+        if (true && target_KE > 0.1) {
             char buff[100];
             snprintf(buff, sizeof(buff), "%1.2f", target_KE);
             stringstream ss;
