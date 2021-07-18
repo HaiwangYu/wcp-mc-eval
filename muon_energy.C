@@ -54,7 +54,7 @@ TH1 *resolution_hist(TH2 *in)
     return out;
 }
 
-bool match_e(const TLorentzVector &pa, const TLorentzVector &pb, const TLorentzVector &ma, const TLorentzVector &mb)
+bool particle_match(const TLorentzVector &pa, const TLorentzVector &pb, const TLorentzVector &ma, const TLorentzVector &mb)
 {
     // pos + direction
     // if (fabs(pa.X() - pb.X() + 0.1) > 0.5) return false;
@@ -135,6 +135,7 @@ void muon_energy(
     float stm_clusterlength;
     bool truth_isFC;
 
+    float kine_reco_Enu;
     std::vector<float> *kine_energy_particle = 0;
     std::vector<int> *kine_energy_info = 0;
     std::vector<int> *kine_particle_type = 0;
@@ -173,13 +174,15 @@ void muon_energy(
     T_PFDump->SetBranchAddress("kine_energy_particle", &kine_energy_particle);
     T_PFDump->SetBranchAddress("kine_energy_info", &kine_energy_info);
     T_PFDump->SetBranchAddress("kine_particle_type", &kine_particle_type);
+    T_PFDump->SetBranchAddress("kine_reco_Enu", &kine_reco_Enu);
 
     TH1F *h_ndaughter_truth = new TH1F("h_ndaughter_truth", "h_ndaughter_truth", 100, -0.5, 99.5);
     TH1F *h_ndaughter_reco = new TH1F("h_ndaughter_reco", "h_ndaughter_reco", 100, -0.5, 99.5);
 
-    TH1F *h_reco_m_truth = new TH1F("h_reco_m_truth", "h_reco_m_truth", 100, 0, 10);
+    TH1F *h_reco_m_truth = new TH1F("h_reco_m_truth", "h_reco_m_truth", 100, -1, 1);
 
-    TH2F *h_reco_v_truth = new TH2F("h_reco_v_truth", "h_reco_v_truth", 100, 0, 2, 100, 0, 2); // energy
+    // TH2F *h_reco_v_truth = new TH2F("h_reco_v_truth", "h_reco_v_truth", 100, 0, 2, 100, 0, 2); // energy
+    TH2F *h_reco_v_truth = new TH2F("h_reco_v_truth", "h_reco_v_truth", 20, 0, 2, 40, 0, 2); // energy bias
     // TH2F *h_reco_v_truth = new TH2F("h_reco_v_truth", "h_reco_v_truth", 20, 0, 3, 100, -TMath::Pi(), TMath::Pi()); //
     // TH2F *h_reco_v_truth = new TH2F("h_reco_v_truth", "h_reco_v_truth", 10, 0, 3, 100, -3, 3);  // angle
     // TH2F *h_reco_v_truth = new TH2F("h_reco_v_truth", "h_reco_v_truth", 20, 0, 3, 100, -1, 1);  // tmp
@@ -193,12 +196,13 @@ void muon_energy(
     int counter_all = 0;
     int counter_pass = 0;
     for (int ientry = 0; ientry < T_PFDump->GetEntries(); ++ientry) {
-    // for (int ientry = 0; ientry < 100000; ++ientry) {
+    // for (int ientry = 0; ientry < 10000; ++ientry) {
         T_PFDump->GetEntry(ientry);
         if (ientry % 1000 == 0) cout << "processing: " << ientry / 10000. * 100 << "%" << endl;
-        if (numu_cc_flag < 0 || stm_clusterlength < 15 || truth_isFC!=true) continue;  // pass generic nu selection
-        // if (truth_isCC) continue;
-        if (!is_in_fv(truth_corr_nuvtxX, truth_corr_nuvtxY, truth_corr_nuvtxZ)) continue;
+        if (numu_cc_flag < 0 || stm_clusterlength < 15) continue;  // generic nu selection
+        if (!truth_isCC) continue;
+        if (truth_isFC!=true) continue; // FV cut
+        // if (!is_in_fv(truth_corr_nuvtxX, truth_corr_nuvtxY, truth_corr_nuvtxZ)) continue; // alternative FV
 
         TVector3 truth_nuvtx(truth_corr_nuvtxX, truth_corr_nuvtxY, truth_corr_nuvtxZ);
         TVector3 reco_nuvtx(reco_nuvtxX, reco_nuvtxY, reco_nuvtxZ);
@@ -225,7 +229,7 @@ void muon_energy(
                                          truth_endXYZT[itruth][3]);
             target_mom_start_truth.SetXYZT(truth_startMomentum[itruth][0], truth_startMomentum[itruth][1],
                                            truth_startMomentum[itruth][2], truth_startMomentum[itruth][3]);
-            // cout << ientry << ", truth: " << target_mom_start_truth.E() - target_mom_start_truth.M() << endl;
+            // cout << ientry << ", truth: " << target_mom_start_truth.E() << endl;
         }
         // if (!is_in_fv(target_pos_start_truth)) continue;
 
@@ -243,8 +247,7 @@ void muon_energy(
                              reco_startXYZT[ireco][3]);
             mom_reco.SetXYZT(reco_startMomentum[ireco][0], reco_startMomentum[ireco][1], reco_startMomentum[ireco][2],
                              reco_startMomentum[ireco][3]);
-            int key = (mom_reco.E() - mom_reco.M())*1000000;
-            // cout << ientry << ", reco: " << mom_reco.E() - mom_reco.M() << ", " << map_ke_energy_info[key] << endl;
+            // cout << ientry << ", reco: " << mom_reco.E() << ", " << endl;
         }
 
         if (current_max_energy_truth == 0) continue;
@@ -255,44 +258,34 @@ void muon_energy(
 
         if (current_max_energy_reco == 0) continue;
 
-        h_reco_m_truth->Fill((reco_nuvtx - truth_nuvtx).Mag());
-        if (!match_e(pos_reco, target_pos_start_truth, mom_reco, target_mom_start_truth)) continue;
+        // h_reco_m_truth->Fill((reco_nuvtx - truth_nuvtx).Mag());
+        if (!particle_match(pos_reco, target_pos_start_truth, mom_reco, target_mom_start_truth)) continue;
         // if (fabs((reco_nuvtx - truth_nuvtx).Mag()) > 1.0) continue;
         ++counter_pass;
         // h_truth_e_match->Fill(truth_nu_momentum[3]);
         h_truth_e_match->Fill(target_mom_start_truth.E());
 
-        // h_reco_m_truth->Fill(mom_reco.E() - target_mom_start_truth.E());
+        h_reco_m_truth->Fill(mom_reco.E() - target_mom_start_truth.E());
         // h_reco_m_truth->Fill(pos_reco.X() - target_pos_start_truth.X());
         // h_reco_v_truth->Fill(target_mom_start_truth.E(), mom_reco.E());
 
-        // kine var
-        map<int, int> map_ke_energy_info;
+        // find ke_energy_info
+        float reco_ke = mom_reco.E()-mom_reco.M();
+        int selected_ke_energy_info = -1;
         for (size_t ikine = 0; ikine < kine_energy_particle->size(); ++ikine) {
-            if ((*kine_particle_type)[ikine] == target_pdg) {
-                // cout
-                // << ientry << ", " << (*kine_particle_type)[ikine] << ", "
-                // << (*kine_energy_particle)[ikine]/1000. << ", " // 0.105658
-                // << (*kine_energy_info)[ikine] << endl;
-                map_ke_energy_info[(*kine_energy_particle)[ikine]*1000] = (*kine_energy_info)[ikine]+1;
+            if(fabs(reco_ke*1000.-(*kine_energy_particle)[ikine])<1) {
+                selected_ke_energy_info = (*kine_energy_info)[ikine];
+                break;
             }
         }
-
-        // energy
-        float reco_ke = mom_reco.E()-mom_reco.M();
-        int key = reco_ke*1000000;
-        // h_reco_v_truth->Fill(target_mom_start_truth.E(),mom_reco.E());
-        if(map_ke_energy_info.find(key)==map_ke_energy_info.end()) {
-            // cout << "key: " << key << endl;
-            // for(auto pair : map_ke_energy_info) {
-            //     cout << pair.first << " -> " << pair.second << endl;
-            // }
-            continue;
-        }
-        if(map_ke_energy_info[key]==2) {
+        if(selected_ke_energy_info==1) {
+            h_reco_v_truth->Fill(target_mom_start_truth.E()-target_mom_start_truth.M(),reco_ke/(target_mom_start_truth.E()-target_mom_start_truth.M()));
             // h_reco_v_truth->Fill(target_mom_start_truth.E()-target_mom_start_truth.M(),reco_ke);
-        } else if (map_ke_energy_info[key]==3) {
-            h_reco_v_truth->Fill(target_mom_start_truth.E()-target_mom_start_truth.M(),reco_ke);
+            // h_reco_v_truth->Fill(truth_nu_momentum[3],(kine_reco_Enu/1000.)/truth_nu_momentum[3]);
+        } else if (selected_ke_energy_info==0) {
+            h_reco_v_truth->Fill(target_mom_start_truth.E()-target_mom_start_truth.M(),reco_ke/(target_mom_start_truth.E()-target_mom_start_truth.M()));
+            // h_reco_v_truth->Fill(target_mom_start_truth.E()-target_mom_start_truth.M(),reco_ke);
+            // h_reco_v_truth->Fill(truth_nu_momentum[3],(kine_reco_Enu/1000.)/truth_nu_momentum[3]);
         }
         // angle
         // h_reco_v_truth->Fill(target_mom_start_truth.E(),mom_reco.Theta()-target_mom_start_truth.Theta());
@@ -344,8 +337,8 @@ void muon_energy(
     c2->SetLogz();
     // h_reco_v_truth->SetTitle(";Z^{truth} [cm];Z^{reco}-Z^{truth} [cm]");
     // h_reco_v_truth->SetTitle(";#phi^{truth} [rad];#phi^{reco}-#phi^{truth} [rad]");
-    // h_reco_v_truth->SetTitle(";E^{truth} [GeV];E^{reco}-E^{truth} [GeV]");
-    h_reco_v_truth->SetTitle(";E^{truth} [GeV];E^{reco} [GeV]");
+    h_reco_v_truth->SetTitle(";E^{truth} [GeV];reco/true");
+    // h_reco_v_truth->SetTitle(";E^{truth} [GeV];E^{reco} [GeV]");
     // h_reco_v_truth->SetTitle(";E^{truth} [GeV];#Delta #theta");
     // h_reco_v_truth->SetTitle(";E^{truth} [GeV];#Delta #phi");
     // h_reco_v_truth->SetStats(0);
@@ -353,15 +346,15 @@ void muon_energy(
     h_reco_v_truth->Draw("colz");
 
     // resolution_hist
-    // auto h_reco_v_truth_1 = resolution_hist(h_reco_v_truth);
-    // h_reco_v_truth_1->Draw("e,same");
+    auto h_reco_v_truth_1 = resolution_hist(h_reco_v_truth);
+    h_reco_v_truth_1->Draw("e,same");
 
     TCanvas *c3 = new TCanvas("c3", "c3");
     c3->SetGrid();
-    h_reco_m_truth->SetTitle(";|Vtx^{reco}-Vtx^{truth}| [cm]");
+    // h_reco_m_truth->SetTitle(";|Vtx^{reco}-Vtx^{truth}| [cm]");
     // h_reco_m_truth->SetTitle(";X^{reco}-X^{truth} [cm]");
     // h_reco_m_truth->SetTitle(";#phi^{reco}-#phi^{truth} [rad]");
-    // h_reco_m_truth->SetTitle(";E^{reco}-E^{truth} [GeV]");
+    h_reco_m_truth->SetTitle(";E^{reco}-E^{truth} [GeV]");
     // h_reco_m_truth->SetStats(0);
     h_reco_m_truth->Draw();
 
