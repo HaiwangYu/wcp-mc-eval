@@ -80,21 +80,30 @@ void leading_e(
 {
     gInterpreter->GenerateDictionary("vector<vector<int> >", "vector");
 
+    const int target_pdg = 13;  // 11, 13, 211, 2212
+    const float min_ke_multiplicity = 0.035; // GeV
+
     auto *tf = TFile::Open(input, "read");
     auto *dir = (TDirectoryFile *) tf->Get("wcpselection");
 
+    // old
     // auto *T_PFDump = (TTree *) dir->Get("T_PFDump");
     // auto *T_PFeval = (TTree *) dir->Get("T_PFeval");
     // T_PFDump->AddFriend(T_PFeval);
 
+    // new
     auto *T_PFDump = (TTree *) dir->Get("T_PFeval");
 
-    auto *T_BDTvars = (TTree *) dir->Get("T_BDTvars");
-    T_PFDump->AddFriend(T_BDTvars);
+    auto *T_KINEvars = (TTree *) dir->Get("T_KINEvars");
+    T_PFDump->AddFriend(T_KINEvars);
     auto *T_eval = (TTree *) dir->Get("T_eval");
     T_PFDump->AddFriend(T_eval);
+    auto *T_BDTvars = (TTree *) dir->Get("T_BDTvars");
+    T_PFDump->AddFriend(T_BDTvars);
 
-    const int target_pdg = 2212;  // 11, 13, 2212
+    int run;
+    int subrun;
+    int event;
 
     int truth_Ntrack;
     int truth_id[MAX_TRACKS];
@@ -117,7 +126,7 @@ void leading_e(
     float reco_startMomentum[MAX_TRACKS][4];
     float reco_endMomentum[MAX_TRACKS][4];
     std::vector<std::vector<int> > *reco_daughters = 0;
-    
+
     bool truth_isCC;
     float truth_nu_momentum[4];
     float truth_corr_nuvtxX;
@@ -128,8 +137,21 @@ void leading_e(
     float reco_nuvtxZ;
 
     float numu_cc_flag;
+    float nue_score;
+    float numu_score;
 
     float stm_clusterlength;
+    bool truth_isFC;
+    bool match_isFC;
+
+    float kine_reco_Enu;
+    std::vector<float> *kine_energy_particle = 0;
+    std::vector<int> *kine_energy_info = 0;
+    std::vector<int> *kine_particle_type = 0;
+
+    T_PFDump->SetBranchAddress("run", &run);
+    T_PFDump->SetBranchAddress("subrun", &subrun);
+    T_PFDump->SetBranchAddress("event", &event);
 
     T_PFDump->SetBranchAddress("truth_Ntrack", &truth_Ntrack);
     T_PFDump->SetBranchAddress("truth_id", &truth_id);
@@ -141,6 +163,7 @@ void leading_e(
     T_PFDump->SetBranchAddress("truth_daughters", &truth_daughters);
 
     T_PFDump->SetBranchAddress("reco_Ntrack", &reco_Ntrack);
+    T_PFDump->SetBranchAddress("reco_id", &reco_id);
     T_PFDump->SetBranchAddress("reco_pdg", &reco_pdg);
     T_PFDump->SetBranchAddress("reco_mother", &reco_mother);
     T_PFDump->SetBranchAddress("reco_startXYZT", &reco_startXYZT);
@@ -157,9 +180,20 @@ void leading_e(
     T_PFDump->SetBranchAddress("reco_nuvtxY", &reco_nuvtxY);
     T_PFDump->SetBranchAddress("reco_nuvtxZ", &reco_nuvtxZ);
 
+    //  T_BDTvars
     T_PFDump->SetBranchAddress("numu_cc_flag", &numu_cc_flag);
+    T_PFDump->SetBranchAddress("nue_score", &nue_score);
+    T_PFDump->SetBranchAddress("numu_score", &numu_score);
 
+    // T_eval
     T_PFDump->SetBranchAddress("stm_clusterlength", &stm_clusterlength);
+    T_PFDump->SetBranchAddress("truth_isFC", &truth_isFC);
+    T_PFDump->SetBranchAddress("match_isFC", &match_isFC);
+
+    T_PFDump->SetBranchAddress("kine_energy_particle", &kine_energy_particle);
+    T_PFDump->SetBranchAddress("kine_energy_info", &kine_energy_info);
+    T_PFDump->SetBranchAddress("kine_particle_type", &kine_particle_type);
+    T_PFDump->SetBranchAddress("kine_reco_Enu", &kine_reco_Enu);
 
     TH1F *h_ndaughter_truth = new TH1F("h_ndaughter_truth", "h_ndaughter_truth", 100, -0.5, 99.5);
     TH1F *h_ndaughter_reco = new TH1F("h_ndaughter_reco", "h_ndaughter_reco", 100, -0.5, 99.5);
@@ -168,24 +202,30 @@ void leading_e(
     // TH2F *h_reco_v_truth = new TH2F("h_reco_v_truth", "h_reco_v_truth", 20, 0, 4, 100, -1, 1); // energy
     // TH2F *h_reco_v_truth = new TH2F("h_reco_v_truth", "h_reco_v_truth", 20, 0, 3, 100, -TMath::Pi(), TMath::Pi()); //
 
-    // TH2F *h_reco_v_truth = new TH2F("h_reco_v_truth", "h_reco_v_truth", 20, 0, 3, 200, -3, 3);  // theta
-    TH2F *h_reco_v_truth = new TH2F("h_reco_v_truth", "h_reco_v_truth", 20, 0, 3, 200, -1, 1);  // tmp
+    TH2F *h_reco_v_truth = new TH2F("h_reco_v_truth", "h_reco_v_truth", 10, 0, 3, 100, -3, 3);  // angle
+    // TH2F *h_reco_v_truth = new TH2F("h_reco_v_truth", "h_reco_v_truth", 20, 0, 3, 100, -1, 1);  // tmp
 
-    TH1F *h_truth_e_all = new TH1F("h_truth_e_all", "h_truth_e_all", 60, 0, 3);
-    TH1F *h_truth_e_match = new TH1F("h_truth_e_match", "h_truth_e_match", 60, 0, 3);
+    // energy
+    // TH1F *h_truth_e_all = new TH1F("h_truth_e_all", "h_truth_e_all", 60, 0, 3);
+    // TH1F *h_truth_e_match = new TH1F("h_truth_e_match", "h_truth_e_match", 60, 0, 3);
+
+    // angle
+    TH1F *h_truth_e_all = new TH1F("h_truth_e_all", "h_truth_e_all", 60, 0, TMath::Pi());
+    TH1F *h_truth_e_match = new TH1F("h_truth_e_match", "h_truth_e_match", 60, 0, TMath::Pi());
 
     TH2F *h_dtheta_theta =
         new TH2F("h_dtheta_theta", "h_dtheta_theta", 200, -TMath::Pi(), TMath::Pi(), 200, -TMath::Pi(), TMath::Pi());
 
     int counter_all = 0;
     int counter_pass = 0;
-    // for (int ientry = 0; ientry < T_PFDump->GetEntries(); ++ientry) {
-    for (int ientry = 0; ientry < 100000; ++ientry) {
+    for (int ientry = 0; ientry < T_PFDump->GetEntries(); ++ientry) {
+    // for (int ientry = 0; ientry < 1000; ++ientry) {
         T_PFDump->GetEntry(ientry);
-        if (ientry % 1000 == 0) cout << "processing: " << ientry / 10000. * 100 << "%" << endl;
+        if (ientry % (T_PFDump->GetEntries()/10) == 0) cout << "processing: " << ientry*100 / T_PFDump->GetEntries() << "%" << endl;
         if (numu_cc_flag<0 || stm_clusterlength <15) continue; // pass generic nu selection
-        // if (truth_isCC) continue;
+        if (!truth_isCC) continue;
         if (!is_in_fv(truth_corr_nuvtxX, truth_corr_nuvtxY, truth_corr_nuvtxZ)) continue;
+        // if (match_isFC!=true) continue; // FV cut
 
         TVector3 truth_nuvtx(truth_corr_nuvtxX, truth_corr_nuvtxY, truth_corr_nuvtxZ);
         TVector3 reco_nuvtx(reco_nuvtxX, reco_nuvtxY, reco_nuvtxZ);
@@ -201,11 +241,6 @@ void leading_e(
         for (int itruth = 0; itruth < truth_Ntrack; ++itruth) {
             map_id_itruth[truth_id[itruth]] = itruth;
             h_ndaughter_truth->Fill(truth_daughters->at(itruth).size());
-            // cout << itruth << ", pdg: " << truth_pdg[itruth] << ", id: " << truth_id[itruth] << ", mother: " << truth_mother[itruth] << ": daughters: ";
-            // for(auto id : truth_daughters->at(itruth)) {
-            //     cout << id << " ";
-            // }
-            // cout << endl;
             if (truth_mother[itruth] != 0) continue;
             if (truth_pdg[itruth] != target_pdg) continue;
             if (truth_startMomentum[itruth][3] < current_max_energy_truth) continue;
@@ -219,24 +254,7 @@ void leading_e(
                                            truth_startMomentum[itruth][2], truth_startMomentum[itruth][3]);
         }
 
-        if (!is_in_fv(target_pos_start_truth)) continue;
-
-        float proton_daugher_ke = 0;
-        if (target_pdg == 2212 && target_index_truth >=0 ) {
-            // cout << endl << "itruth: " << target_index_truth << ", size: " << truth_daughters->at(target_index_truth).size() << ", pdg: " << truth_pdg[target_index_truth] << ", Ntrack: " << truth_Ntrack << endl;
-            for (auto id : truth_daughters->at(target_index_truth)) {
-                if (map_id_itruth.find(id)==map_id_itruth.end()) continue;
-                auto itruth = map_id_itruth[id];
-                auto pdg = truth_pdg[itruth];
-                if(pdg==2212 || pdg >10000000) continue;
-                TLorentzVector tlv;
-                tlv.SetPxPyPzE(truth_startMomentum[itruth][0], truth_startMomentum[itruth][1], truth_startMomentum[itruth][2], truth_startMomentum[itruth][3]);
-                proton_daugher_ke += truth_startMomentum[itruth][3]-tlv.M();
-                // cout << " itruth: " << itruth << " id: " << id << " pdg: " << truth_pdg[itruth] << " mother: " << truth_mother[itruth] << " ke: " <<truth_startMomentum[itruth][3]-tlv.M() << endl;
-            }
-            h_reco_v_truth->Fill(target_mom_start_truth.E(), proton_daugher_ke);
-            if (!is_good_proton(target_pos_start_truth, target_pos_end_truth, proton_daugher_ke, 0.05)) continue;
-        }
+        // if (!is_in_fv(target_pos_start_truth)) continue;
 
         // leading reco target
         TLorentzVector pos_reco;
@@ -257,8 +275,19 @@ void leading_e(
         if (current_max_energy_truth == 0) continue;
         ++counter_all;
 
+        // angle
+        TLorentzVector target_mom_start_truth_yzx;
+        target_mom_start_truth_yzx.SetXYZT(target_mom_start_truth.Z(), target_mom_start_truth.Y(),
+                                           target_mom_start_truth.X(), target_mom_start_truth.T());
+        // auto dtheta = TMath::ACos(target_mom_start_truth.Vect().Dot(mom_reco.Vect()) /
+        //                           target_mom_start_truth.Vect().Mag() / mom_reco.Vect().Mag());
+        // dtheta = mom_reco.Phi() - target_mom_start_truth.Phi();
+        // h_dtheta_theta->Fill(TMath::Pi() / 2 - target_mom_start_truth_yzx.Theta(),
+        //                      TMath::Pi() / 2 - target_mom_start_truth.Theta());
+
         // h_truth_e_all->Fill(truth_nu_momentum[3]);
-        h_truth_e_all->Fill(target_mom_start_truth.E());
+        // h_truth_e_all->Fill(target_mom_start_truth.E());
+        h_truth_e_all->Fill(target_mom_start_truth_yzx.Theta());
 
         if (current_max_energy_reco == 0) continue;
 
@@ -267,25 +296,20 @@ void leading_e(
         // if (fabs((reco_nuvtx - truth_nuvtx).Mag()) > 1.0) continue;
         ++counter_pass;
         // h_truth_e_match->Fill(truth_nu_momentum[3]);
-        h_truth_e_match->Fill(target_mom_start_truth.E());
+        // h_truth_e_match->Fill(target_mom_start_truth.E());
+        h_truth_e_match->Fill(target_mom_start_truth_yzx.Theta());
 
         // h_reco_m_truth->Fill(mom_reco.E() - target_mom_start_truth.E());
         // h_reco_m_truth->Fill(pos_reco.X() - target_pos_start_truth.X());
         // h_reco_v_truth->Fill(target_mom_start_truth.E(), mom_reco.E());
+        
+        // energy
         // h_reco_v_truth->Fill(target_mom_start_truth.E(),(mom_reco.E()-target_mom_start_truth.E())/target_mom_start_truth.E());
-        // // energy h_reco_v_truth->Fill(target_mom_start_truth.E(),mom_reco.Theta()-target_mom_start_truth.Theta());
-        // // angle
-        // h_reco_v_truth->Fill(target_pos_start_truth.Y(), pos_reco.Y());  // pos
-
         // angle
-        // auto dtheta = TMath::ACos(target_mom_start_truth.Vect().Dot(mom_reco.Vect()) /
-        //                           target_mom_start_truth.Vect().Mag() / mom_reco.Vect().Mag());
-        // TLorentzVector target_mom_start_truth_yzx;
-        // dtheta = mom_reco.Phi() - target_mom_start_truth.Phi();
-        // target_mom_start_truth_yzx.SetXYZT(target_mom_start_truth.Z(), target_mom_start_truth.Y(),
-        //                                    target_mom_start_truth.X(), target_mom_start_truth.T());
-        // h_dtheta_theta->Fill(TMath::Pi() / 2 - target_mom_start_truth_yzx.Theta(),
-        //                      TMath::Pi() / 2 - target_mom_start_truth.Theta());
+        // h_reco_v_truth->Fill(target_mom_start_truth.E(),mom_reco.Theta()-target_mom_start_truth.Theta());
+        h_reco_v_truth->Fill(target_mom_start_truth.E(),mom_reco.Phi()-target_mom_start_truth.Phi());
+        // pos
+        // h_reco_v_truth->Fill(target_pos_start_truth.Y(), pos_reco.Y());
     }
     cout << "target: truth " << counter_all << "; reco " << counter_pass << "; ratio: " << 100.*counter_pass/counter_all << "%"  << endl;
 
@@ -305,7 +329,8 @@ void leading_e(
     auto pEff = new TEfficiency(*h_truth_e_match, *h_truth_e_all);
     // pEff->GetXaxis()->SetRangeUser(0,1);
     pEff->SetMarkerStyle(20);
-    pEff->SetTitle(";E^{truth} [GeV];Efficiency");
+    // pEff->SetTitle(";E^{truth} [GeV];Efficiency");
+    pEff->SetTitle(";#theta_{YZ};Efficiency");
     pEff->Draw("ap");
     // auto h_truth_e_ratio = (TH1F *) h_truth_e_match->Clone("h_truth_e_ratio");
     // h_truth_e_ratio->Divide(h_truth_e_all);
@@ -321,7 +346,8 @@ void leading_e(
     // h_reco_v_truth->SetTitle(";#phi^{truth} [rad];#phi^{reco}-#phi^{truth} [rad]");
     // h_reco_v_truth->SetTitle(";E^{truth} [GeV];E^{reco}-E^{truth} [GeV]");
     // h_reco_v_truth->SetTitle(";E^{truth} [GeV];E^{reco} [GeV]");
-    h_reco_v_truth->SetTitle(";E^{truth} [GeV];#Delta #theta");
+    // h_reco_v_truth->SetTitle(";E^{truth} [GeV];#Delta #theta");
+    h_reco_v_truth->SetTitle(";E^{truth} [GeV];#Delta #phi");
     // h_reco_v_truth->SetStats(0);
     h_reco_v_truth->Draw("colz");
     // auto current_dir = h_reco_v_truth->GetDirectory();
